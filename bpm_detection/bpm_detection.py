@@ -27,6 +27,7 @@ import numpy
 import pywt
 from scipy import signal
 
+import utils
 
 def read_wav(filename):
     # open file, get metadata for audio
@@ -44,12 +45,17 @@ def read_wav(filename):
     assert fs > 0
 
     # Read entire file and make into an array
-    samps = list(array.array("i", wf.readframes(nsamps)))
+    frames = wf.readframes(nsamps)
+    padding = bytes([int(x) for x in numpy.zeros(8-frames.__len__()%8).tolist()])
+    frames += padding
+    samps = list(array.array("i", frames))
 
     try:
         assert nsamps == len(samps)
     except AssertionError:
-        print(nsamps, "not equal to", len(samps))
+        # it works even with this flow?
+        #print(nsamps, "not equal to", len(samps))
+        pass
 
     return samps, fs
 
@@ -69,7 +75,7 @@ def peak_detect(data):
     return peak_ndx
 
 
-def bpm_detector(data, fs):
+def bpm_detector(data, fs, plot):
     cA = []
     cD = []
     correl = []
@@ -122,56 +128,66 @@ def bpm_detector(data, fs):
 
     peak_ndx_adjusted = peak_ndx[0] + min_ndx
     bpm = 60.0 / peak_ndx_adjusted * (fs / max_decimation)
-    print(bpm)
+    if (plot):
+        print(bpm)
     return bpm, correl
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process .wav file to determine the Beats Per Minute.")
     parser.add_argument("--filename", required=True, help=".wav file for processing")
     parser.add_argument(
         "--window",
-        type=float,
-        default=3,
-        help="Size of the the window (seconds) that will be scanned to determine the bpm. Typically less than 10 seconds. [3]",
+        default="3",
+        help="Size of the the window (seconds) that will be scanned to determine the bpm. Typically less than 10 seconds. [3]. It could be a list [3,5,7]",
     )
+    parser.add_argument("--plotmode", default="True", help="If True, information is displayed")
 
     args = parser.parse_args()
-    samps, fs = read_wav(args.filename)
-    data = []
-    correl = []
-    bpm = 0
-    n = 0
-    nsamps = len(samps)
-    window_samps = int(args.window * fs)
-    samps_ndx = 0  # First sample in window_ndx
-    max_window_ndx = math.floor(nsamps / window_samps)
-    bpms = numpy.zeros(max_window_ndx)
+    plotmode = args.plotmode in ['True']
+    windows=[int(x) for x in args.window.split(',')]
 
-    # Iterate through all windows
-    for window_ndx in range(0, max_window_ndx):
+    bpmList = []
+    for w in windows:
+        samps, fs = read_wav(args.filename)
+        data = []
+        correl = []
+        bpm = 0
+        n = 0
+        nsamps = len(samps)
+        window_samps = int(w * fs)
+        samps_ndx = 0  # First sample in window_ndx
+        max_window_ndx = math.floor(nsamps / window_samps)
+        bpms = numpy.zeros(max_window_ndx)
 
-        # Get a new set of samples
-        # print(n,":",len(bpms),":",max_window_ndx_int,":",fs,":",nsamps,":",samps_ndx)
-        data = samps[samps_ndx : samps_ndx + window_samps]
-        if not ((len(data) % window_samps) == 0):
-            raise AssertionError(str(len(data)))
+        # Iterate through all windows
+        for window_ndx in range(0, max_window_ndx):
 
-        bpm, correl_temp = bpm_detector(data, fs)
-        if bpm is None:
-            continue
-        bpms[window_ndx] = bpm
-        correl = correl_temp
+            # Get a new set of samples
+            # print(n,":",len(bpms),":",max_window_ndx_int,":",fs,":",nsamps,":",samps_ndx)
+            data = samps[samps_ndx : samps_ndx + window_samps]
+            if not ((len(data) % window_samps) == 0):
+                raise AssertionError(str(len(data)))
 
-        # Iterate at the end of the loop
-        samps_ndx = samps_ndx + window_samps
+            bpm, correl_temp = bpm_detector(data, fs, plotmode)
+            if bpm is None:
+                continue
+            bpms[window_ndx] = bpm
+            correl = correl_temp
 
-        # Counter for debug...
-        n = n + 1
+            # Iterate at the end of the loop
+            samps_ndx = samps_ndx + window_samps
 
-    bpm = numpy.median(bpms)
-    print("Completed!  Estimated Beats Per Minute:", bpm)
+            # Counter for debug...
+            n = n + 1
 
-    n = range(0, len(correl))
-    plt.plot(n, abs(correl))
-    plt.show(block=True)
+        bpm = numpy.median(bpms)
+        bpmList.append(bpm)
+        if (plotmode):
+            print("Completed!.  Estimated Beats Per Minute:", bpm)
+            n = range(0, len(correl))
+            plt.plot(n, abs(correl))
+            plt.show(block=True)
+
+    bpmReduced=utils.reduceBpm([str(x) for x in bpmList])
+    if (plotmode == False):
+        print(bpmReduced)

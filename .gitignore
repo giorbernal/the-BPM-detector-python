@@ -4,6 +4,7 @@ dist/
 env/
 htmlcov/
 .coverage
+.idea
 *.DS_Store
 *.pyc
 *.bak
